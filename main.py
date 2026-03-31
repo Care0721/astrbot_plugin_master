@@ -45,7 +45,7 @@ class ContactOwnerPlugin(Star):
         if str(event.get_sender_id()) != self.owner_id:
             return
 
-        # 智能解析命令
+        # 解析命令
         raw = event.message_str.strip()
         if raw.startswith('/'):
             raw = raw[1:].strip()
@@ -66,7 +66,7 @@ class ContactOwnerPlugin(Star):
             return
 
         try:
-            # 🔥 关键修复：使用 qq= 关键字参数 + name
+            # 使用 qq= 关键字参数 + name
             chain = MessageChain()
             chain.at(qq=session["qq"], name=session["name"])   # 正式 @（带名字）
             chain.message(f" 主人回复：\n{reply_content}")
