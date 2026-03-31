@@ -1,13 +1,13 @@
 from astrbot.api.all import *
 from astrbot.api.event import MessageChain
 
-@register("contact_owner_pro", "Care", "联系主人：@回复版", "3.3.2")
+@register("contact_owner_pro", "Care", "联系主人：正式@版", "3.3.3")
 class ContactOwnerPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
-        self.owner_id = "3524815759"                    # 你的 QQ 号
+        self.owner_id = "3524815759"
         self.owner_umo = f"llbot:FriendMessage:{self.owner_id}"
-        self.user_sessions = {}                         # 同时存 UMO + 昵称
+        self.user_sessions = {}
 
     @command("联系主人")
     async def contact_owner(self, event: AstrMessageEvent):
@@ -17,10 +17,10 @@ class ContactOwnerPlugin(Star):
             return
 
         sender_id = str(event.get_sender_id())
-        # 同时保存 session 和昵称
         self.user_sessions[sender_id] = {
             "umo": event.unified_msg_origin,
-            "name": event.get_sender_name() or "用户"
+            "name": event.get_sender_name() or "用户",
+            "qq": int(sender_id)   # 新增：保存数字 QQ 号用于 At
         }
 
         forward_text = (
@@ -45,7 +45,7 @@ class ContactOwnerPlugin(Star):
         if str(event.get_sender_id()) != self.owner_id:
             return
 
-        # 智能解析（支持 “回复”、“/回复” 两种写法）
+        # 智能解析命令
         raw = event.message_str.strip()
         if raw.startswith('/'):
             raw = raw[1:].strip()
@@ -66,12 +66,16 @@ class ContactOwnerPlugin(Star):
             return
 
         try:
-            # 🔥 新增：自动 @ 用户名
-            at_name = session["name"]
+            # 🔥 正式使用 At 组件（关键修复！）
+            target_qq = session["qq"]
+            chain = MessageChain()
+            chain.at(target_qq)                    # 真正的 @ 
+            chain.message(f" 主人回复：\n{reply_content}")
+
             await self.context.send_message(
                 session["umo"],
-                MessageChain().message(f"@{at_name} 主人回复：\n{reply_content}")
+                chain
             )
-            yield event.plain_result(f"🚀 已成功回复给 {target_id}（已@）")
+            yield event.plain_result(f"🚀 已成功@回复给 {target_id}")
         except Exception as e:
             yield event.plain_result(f"❌ 回复失败：{str(e)}")
