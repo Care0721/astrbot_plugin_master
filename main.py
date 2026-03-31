@@ -1,23 +1,21 @@
 from astrbot.api.all import *
 
-# 手动构造一个完全符合框架要求的消息类，解决 'list' 或 'str' no attribute 'chain' 的问题
+# 1. 消息包装类：确保绕过 'list' 或 'str' object has no attribute 'chain' 报错
 class CustomChain:
     def __init__(self, text, at_qq=None):
         from astrbot.api.message_components import Plain, At
         self.chain = []
         if at_qq:
-            # 1. 核心需求：自动识别 QQ 并添加艾特组件
-            self.chain.append(At(qq=str(at_qq)))
+            self.chain.append(At(qq=str(at_qq))) # 核心：执行艾特
             self.chain.append(Plain(" "))
         self.chain.append(Plain(text))
 
-@register("contact_owner_pro", "Care", "联系主人：精准艾特修复版", "8.0.0")
+@register("contact_owner_pro", "Care", "联系主人：全域识别艾特版", "9.0.0")
 class ContactOwnerPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
-        # 配置你的大号 ID
         self.owner_id = "3524815759"
-        self.owner_session = f"llbot:FriendMessage:{self.owner_id}"
+        self.owner_session = f"llbot:FriendMessage:{self.owner_id}" # 严格三段式 ID
         self.reply_map = {}
 
     @command("联系主人")
@@ -28,11 +26,10 @@ class ContactOwnerPlugin(Star):
             return
 
         sender_id = str(event.get_sender_id())
-        # 记录完整的 event 对象，用于后续精准原路回复
-        self.reply_map[sender_id] = event 
+        self.reply_map[sender_id] = event # 记录 event 对象
 
         forward_text = (
-            f"📩 【收到留言】\n"
+            f"📩 【新留言】\n"
             f"👤 发送者：{event.get_sender_name()}({sender_id})\n"
             f"📝 内容：{msg_str}\n"
             f"━━━━━━━━━━━━━━\n"
@@ -40,9 +37,8 @@ class ContactOwnerPlugin(Star):
         )
 
         try:
-            # 转发给主人，使用包装类解决属性报错
             await self.context.send_message(self.owner_session, CustomChain(forward_text))
-            yield event.plain_result("✅ 消息已转发。")
+            yield event.plain_result("✅ 留言已成功转发。")
         except Exception as e:
             yield event.plain_result(f"❌ 转发失败：{str(e)}")
 
@@ -57,20 +53,34 @@ class ContactOwnerPlugin(Star):
             return
 
         target_id, reply_content = parts[0], parts[1]
-        target_event = self.reply_map.get(target_id) # 从记录获取 event
+        target_event = self.reply_map.get(target_id)
+
+        # 尝试通过底层接口获取该 QQ 的昵称 (识别全域联系人)
+        target_name = target_id
+        try:
+            # 这里的逻辑会尝试从机器人缓存或列表中搜索对应 QQ 的名字
+            adapter = self.context.get_platform_adapter(event.message_event.platform)
+            # 调用底层协议获取用户信息
+            user_info = await adapter.get_user_info(target_id)
+            if user_info and 'nickname' in user_info:
+                target_name = user_info['nickname']
+        except:
+            # 如果没搜到名字，就用之前的 event 记录里的名字
+            if target_event:
+                target_name = target_event.get_sender_name()
 
         if not target_event:
-            # 提醒：重启或保存代码会清空此处记录
-            yield event.plain_result(f"❌ 找不到用户 {target_id} 的记录，请让对方先发一条消息。")
+            # 重启后需要重新激活记录
+            yield event.plain_result(f"❌ 找不到用户 {target_id} 的联系记录，请让对方先发一条消息。")
             return
 
         try:
-            # 2. 核心需求：回复时自动艾特目标 QQ
-            # 我们通过 target_id 动态生成艾特组件
-            msg_obj = CustomChain(f"主人回信：\n{reply_content}", at_qq=target_id)
+            # 核心：识别名字并在回复中艾特
+            final_msg = f"你好 {target_name}，收到主人的回信：\n\n{reply_content}"
+            msg_obj = CustomChain(final_msg, at_qq=target_id)
             
-            # 使用 target_event 发送，它是最能解决“缺少 session_id”报错的方法
+            # 原路返回发送，确保 session_id 有效
             await self.context.send_message(target_event, msg_obj)
-            yield event.plain_result(f"🚀 已成功艾特并回复给 {target_id}")
+            yield event.plain_result(f"🚀 已识别用户【{target_name}】并完成艾特回复。")
         except Exception as e:
             yield event.plain_result(f"❌ 回复失败：{str(e)}")
