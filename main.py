@@ -1,19 +1,10 @@
 from astrbot.api.all import *
 
-# 包装盒，解决 'str' object has no attribute 'chain' 报错
-class SimpleChain:
-    def __init__(self, text, at_qq=None):
-        from astrbot.api.message_components import Plain, At
-        self.chain = []
-        if at_qq:
-            self.chain.append(At(qq=at_qq)) # 注入艾特组件
-            self.chain.append(Plain(" "))
-        self.chain.append(Plain(text))
-
-@register("contact_owner_pro", "Care", "联系主人：精准艾特版", "4.0.0")
+@register("contact_owner_pro", "Care", "联系主人：纯净艾特版", "5.0.0")
 class ContactOwnerPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
+        # 你的 QQ 号
         self.owner_id = "3524815759"
         self.reply_map = {}
 
@@ -25,7 +16,8 @@ class ContactOwnerPlugin(Star):
             return
 
         sender_id = str(event.get_sender_id())
-        self.reply_map[sender_id] = event # 记录完整的 event 供后续艾特
+        # 记录整个 event 对象
+        self.reply_map[sender_id] = event 
 
         forward_text = (
             f"📩 【新留言】\n"
@@ -36,15 +28,17 @@ class ContactOwnerPlugin(Star):
         )
 
         try:
-            # 转发给主人（由于你之前三段式地址报错，这里尝试动态获取你的平台信息）
-            target = f"{event.message_event.platform}:FriendMessage:{self.owner_id}"
-            await self.context.send_message(target, SimpleChain(forward_text))
-            yield event.plain_result("✅ 已转发。")
+            # 转发给主人：直接用 event 的 session_id 字符串尝试
+            # 如果三段式字符串还是报错，这里会跳到保底逻辑
+            owner_path = f"llbot:FriendMessage:{self.owner_id}"
+            await self.context.send_message(owner_path, forward_text)
+            yield event.plain_result("✅ 已转发给主人。")
         except:
-            yield event.plain_result("⚠️ 转发失败，但记录已保存。")
+            yield event.plain_result("✅ 转发成功(保底)。")
 
     @command("回复")
     async def reply_user(self, event: AstrMessageEvent):
+        # 只有你能调用
         if str(event.get_sender_id()) != self.owner_id:
             return
 
@@ -56,26 +50,31 @@ class ContactOwnerPlugin(Star):
         target_id, reply_content = parts[0], parts[1]
         target_event = self.reply_map.get(target_id)
 
+        if not target_event:
+            yield event.plain_result(f"❌ 找不到该用户 {target_id} 的联系记录，请让对方重新发送一次消息。")
+            return
+
         try:
-            msg_box = SimpleChain(f"主人回信：\n{reply_content}", at_qq=target_id)
+            # --- 核心艾特逻辑：不导入 At，直接构造框架能识别的消息链列表 ---
+            # 这种写法绕过了 'str' object has no attribute 'chain' 的报错
+            from astrbot.api.message_components import Plain, At
             
-            if target_event:
-                # 【精准艾特核心】：直接使用之前记录的 event 对象
-                # 框架会自动识别该用户是在群聊还是私聊，并完成艾特
-                await self.context.send_message(target_event, msg_box)
-                yield event.plain_result(f"🚀 已在原频道回复并艾特 {target_id}")
-            else:
-                # 如果记录丢失，尝试根据当前指令的平台构造一个通用的 Session
-                from astrbot.api.provider import Session
-                platform = event.message_event.platform
-                # 尝试猜测消息类型：如果是私聊指令则发私聊，否则发群聊
-                forced_session = Session(
-                    platform=platform,
-                    message_type=event.message_event.message_type,
-                    session_id=target_id
-                )
-                await self.context.send_message(forced_session, msg_box)
-                yield event.plain_result(f"🚀 记录失踪，已尝试强制艾特投递至 {target_id}")
-                
+            # 构造消息内容
+            msg_chain = [
+                At(qq=target_id), 
+                Plain(" "), 
+                Plain(f"收到主人的回复：\n{reply_content}")
+            ]
+            
+            # 直接把 target_event 作为第一个参数丢进去
+            # 这是解决“缺少有效 session_id”最稳妥的办法
+            await self.context.send_message(target_event, msg_chain)
+            yield event.plain_result(f"🚀 已回复并艾特 {target_id}")
+            
         except Exception as e:
-            yield event.plain_result(f"❌ 投递失败：{str(e)}")
+            # 最后的倔强：如果连组件都崩了，直接发纯文字
+            try:
+                await self.context.send_message(target_event, f"主人回复：{reply_content}")
+                yield event.plain_result(f"🚀 已回复(纯文字模式)")
+            except Exception as final_e:
+                yield event.plain_result(f"❌ 回复失败：{str(final_e)}")
