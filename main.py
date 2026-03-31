@@ -1,12 +1,23 @@
 from astrbot.api.all import *
 
-@register("contact_owner_pro", "Care", "联系主人：终极兼容版", "7.0.0")
+# 手动构造一个完全符合框架要求的消息类，解决 'list' 或 'str' no attribute 'chain' 的问题
+class CustomChain:
+    def __init__(self, text, at_qq=None):
+        from astrbot.api.message_components import Plain, At
+        self.chain = []
+        if at_qq:
+            # 1. 核心需求：自动识别 QQ 并添加艾特组件
+            self.chain.append(At(qq=str(at_qq)))
+            self.chain.append(Plain(" "))
+        self.chain.append(Plain(text))
+
+@register("contact_owner_pro", "Care", "联系主人：精准艾特修复版", "8.0.0")
 class ContactOwnerPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
-        # --- 这里的 ID 必须配置为三段式，否则你会收不到转发 ---
+        # 配置你的大号 ID
         self.owner_id = "3524815759"
-        self.owner_session = f"llbot:FriendMessage:{self.owner_id}" 
+        self.owner_session = f"llbot:FriendMessage:{self.owner_id}"
         self.reply_map = {}
 
     @command("联系主人")
@@ -17,7 +28,7 @@ class ContactOwnerPlugin(Star):
             return
 
         sender_id = str(event.get_sender_id())
-        # 存下 event 对象，这是解决“缺少 session_id”报错的关键
+        # 记录完整的 event 对象，用于后续精准原路回复
         self.reply_map[sender_id] = event 
 
         forward_text = (
@@ -29,11 +40,10 @@ class ContactOwnerPlugin(Star):
         )
 
         try:
-            # 解决 'str' has no attribute 'chain'：用 [Plain(...)] 发送
-            await self.context.send_message(self.owner_session, [Plain(forward_text)])
-            yield event.plain_result("✅ 消息已成功转发给主人。")
+            # 转发给主人，使用包装类解决属性报错
+            await self.context.send_message(self.owner_session, CustomChain(forward_text))
+            yield event.plain_result("✅ 消息已转发。")
         except Exception as e:
-            # 如果还收不到，这里会显示具体的报错原因
             yield event.plain_result(f"❌ 转发失败：{str(e)}")
 
     @command("回复")
@@ -47,22 +57,20 @@ class ContactOwnerPlugin(Star):
             return
 
         target_id, reply_content = parts[0], parts[1]
-        target_event = self.reply_map.get(target_id)
+        target_event = self.reply_map.get(target_id) # 从记录获取 event
 
         if not target_event:
-            yield event.plain_result(f"❌ 找不到该用户 {target_id} 的联系记录，请让对方重新发送一次消息。")
+            # 提醒：重启或保存代码会清空此处记录
+            yield event.plain_result(f"❌ 找不到用户 {target_id} 的记录，请让对方先发一条消息。")
             return
 
         try:
-            from astrbot.api.message_components import Plain, At
-            # 构造带 @ 的消息链
-            msg_chain = [
-                At(qq=target_id), 
-                Plain(" "), 
-                Plain(f"收到主人的回信：\n\n{reply_content}")
-            ]
-            # 直接使用 target_event 发送，最稳妥
-            await self.context.send_message(target_event, msg_chain)
+            # 2. 核心需求：回复时自动艾特目标 QQ
+            # 我们通过 target_id 动态生成艾特组件
+            msg_obj = CustomChain(f"主人回信：\n{reply_content}", at_qq=target_id)
+            
+            # 使用 target_event 发送，它是最能解决“缺少 session_id”报错的方法
+            await self.context.send_message(target_event, msg_obj)
             yield event.plain_result(f"🚀 已成功艾特并回复给 {target_id}")
         except Exception as e:
             yield event.plain_result(f"❌ 回复失败：{str(e)}")
