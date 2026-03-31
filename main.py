@@ -1,7 +1,7 @@
 from astrbot.api.all import *
 from astrbot.api.event import MessageChain
 
-@register("contact_owner_pro", "Care", "联系主人：正式@版", "3.3.3")
+@register("contact_owner_pro", "Care", "联系主人：正式@版", "3.3.4")
 class ContactOwnerPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -20,7 +20,7 @@ class ContactOwnerPlugin(Star):
         self.user_sessions[sender_id] = {
             "umo": event.unified_msg_origin,
             "name": event.get_sender_name() or "用户",
-            "qq": int(sender_id)   # 新增：保存数字 QQ 号用于 At
+            "qq": int(sender_id)
         }
 
         forward_text = (
@@ -66,10 +66,9 @@ class ContactOwnerPlugin(Star):
             return
 
         try:
-            # 🔥 正式使用 At 组件（关键修复！）
-            target_qq = session["qq"]
+            # 🔥 关键修复：使用 qq= 关键字参数 + name
             chain = MessageChain()
-            chain.at(target_qq)                    # 真正的 @ 
+            chain.at(qq=session["qq"], name=session["name"])   # 正式 @（带名字）
             chain.message(f" 主人回复：\n{reply_content}")
 
             await self.context.send_message(
