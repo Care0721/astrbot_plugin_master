@@ -1,7 +1,7 @@
 from astrbot.api.all import *
 from astrbot.api.event import MessageChain
 
-@register("contact_owner_pro", "Care", "联系主人：正式@版", "3.3.4")
+@register("contact_owner_pro", "Care", "联系主人：正式版", "17.3.4")
 class ContactOwnerPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
