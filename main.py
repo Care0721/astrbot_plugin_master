@@ -1,15 +1,16 @@
 from astrbot.api.all import *
 
-@register("contact_owner_pro", "Care", "联系主人：终极兼容版", "3.0.0")
+@register("contact_owner_pro", "Care", "联系主人：终极兼容版", "3.1.0")
 class ContactOwnerPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
-        # 1. 这里严格使用你图片里查到的三段式格式
-        # 如果是发给你的 QQ 私聊，格式通常是 llbot:FriendMessage:你的QQ
+        # 这里的 ID 必须是三段式：平台:消息类型:QQ号
+        # 根据你的查询结果，这里设置为发往你的私聊
         self.owner_session = "llbot:FriendMessage:3524815759" 
         self.reply_map = {}
 
-    @filter.command("联系主人")
+    # 使用最基础的 command 装饰器，解决 filter 报错问题
+    @command("联系主人")
     async def contact_owner(self, event: AstrMessageEvent):
         msg = event.message_str.strip()
         if not msg:
@@ -17,22 +18,28 @@ class ContactOwnerPlugin(Star):
             return
 
         sender_id = str(event.get_sender_id())
-        # 2. 存下 event 对象，这是回复时绕过 session 校验的唯一生路
+        # 存下 event 对象，这是回复时绕过 session 格式校验的关键
         self.reply_map[sender_id] = event
 
-        forward_text = f"📩 【新留言】\n来自：{event.get_sender_name()}({sender_id})\n内容：{msg}\n回复格式：/回复 {sender_id} [内容]"
+        forward_text = (
+            f"📩 【新留言】\n"
+            f"来自：{event.get_sender_name()}({sender_id})\n"
+            f"内容：{msg}\n"
+            f"━━━━━━━━━━━━━━\n"
+            f"回复格式：/回复 {sender_id} [内容]"
+        )
 
         try:
-            # 3. 放弃所有包装盒，直接发纯文本字符串，这是兼容性最高的
+            # 直接发送纯文本字符串，不使用任何消息链包装，兼容性最强
             await self.context.send_message(self.owner_session, forward_text)
             yield event.plain_result("✅ 消息已转发。")
         except Exception as e:
-            # 如果三段式私聊也发不出，说明你的 bot 不支持主动私聊，直接在此处报错显示具体原因
-            yield event.plain_result(f"❌ 转发失败，原因：{str(e)}")
+            # 如果转发失败，打印出具体的报错，方便排查
+            yield event.plain_result(f"❌ 转发失败：{str(e)}")
 
-    @filter.command("回复")
+    @command("回复")
     async def reply_user(self, event: AstrMessageEvent):
-        # 校验权限
+        # 校验是否为主人发送
         if str(event.get_sender_id()) != "3524815759":
             return
 
@@ -46,10 +53,10 @@ class ContactOwnerPlugin(Star):
 
         try:
             if target_event:
-                # 4. 直接把回复塞回原来的 event 路径，这样框架绝对不会报 session 错误
+                # 核心修复：直接传入原有的 event 对象，框架会自动处理 session
                 await self.context.send_message(target_event, f"收到主人的回信：\n\n{reply_text}")
                 yield event.plain_result(f"🚀 已成功回复给 {target_id}")
             else:
-                yield event.plain_result(f"❌ 找不到该用户的联系记录。")
+                yield event.plain_result(f"❌ 找不到该用户的联系记录，请让用户重新发送一次消息。")
         except Exception as e:
             yield event.plain_result(f"❌ 投递失败：{str(e)}")
