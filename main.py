@@ -1,18 +1,24 @@
 from astrbot.api.all import *
 
-# 1. 手动构造消息类，解决 'str' object has no attribute 'chain' 报错
+# 1. 升级消息包装盒：支持传入文字和需要 @ 的 QQ 号
 class SimpleChain:
-    def __init__(self, text):
-        from astrbot.api.message_components import Plain
-        self.chain = [Plain(text)]
+    def __init__(self, text, at_qq=None):
+        from astrbot.api.message_components import Plain, At
+        self.chain = []
+        if at_qq:
+            # 如果提供了 QQ 号，则在开头添加 At 组件
+            self.chain.append(At(qq=at_qq))
+            # 添加一个空格让消息更好看
+            self.chain.append(Plain(" "))
+        self.chain.append(Plain(text))
 
-@register("contact_owner_pro", "Care", "联系主人：终极兼容版", "3.4.0")
+@register("contact_owner_pro", "Care", "联系主人：自动艾特版", "3.5.0")
 class ContactOwnerPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
         # 你的 QQ 号
         self.owner_id = "3524815759"
-        # 严格的三段式 ID 格式，解决 expected 3, got 1 报错
+        # 严格的三段式 ID 格式
         self.owner_session = f"llbot:FriendMessage:{self.owner_id}"
         self.reply_map = {}
 
@@ -24,7 +30,7 @@ class ContactOwnerPlugin(Star):
             return
 
         sender_id = str(event.get_sender_id())
-        # 存下 event 对象，这是原路回复、绕过格式校验的关键
+        # 存下 event 对象
         self.reply_map[sender_id] = event
 
         forward_text = (
@@ -36,7 +42,7 @@ class ContactOwnerPlugin(Star):
         )
 
         try:
-            # 使用 SimpleChain 包装发送
+            # 转发给主人时不需要艾特
             await self.context.send_message(self.owner_session, SimpleChain(forward_text))
             yield event.plain_result("✅ 消息已转发给主人。")
         except Exception as e:
@@ -56,16 +62,17 @@ class ContactOwnerPlugin(Star):
         target_event = self.reply_map.get(target_id)
 
         try:
-            msg_box = SimpleChain(f"收到主人的回信：\n\n{reply_content}")
+            # 【核心修改】：在这里传入 target_id，实现自动 @
+            msg_box = SimpleChain(f"收到主人的回信：\n\n{reply_content}", at_qq=target_id)
             
             if target_event:
-                # 记录存在时，通过 event 原路回传，最稳妥
+                # 记录存在时原路回传
                 await self.context.send_message(target_event, msg_box)
-                yield event.plain_result(f"🚀 已成功回复给 {target_id}")
+                yield event.plain_result(f"🚀 已成功回复并艾特 {target_id}")
             else:
-                # 记录不存在（重启后），尝试强制使用三段式 ID 发送
+                # 记录不存在时尝试强制投递
                 forced_target = f"llbot:FriendMessage:{target_id}"
                 await self.context.send_message(forced_target, msg_box)
-                yield event.plain_result(f"⚠️ 记录已随重载丢失，已尝试强制投递至 {target_id}")
+                yield event.plain_result(f"⚠️ 记录已丢失，已尝试强制艾特投递至 {target_id}")
         except Exception as e:
             yield event.plain_result(f"❌ 投递失败：{str(e)}")
