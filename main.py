@@ -1,86 +1,64 @@
 from astrbot.api.all import *
 
-# 包装类：彻底解决 'list' 或 'str' no attribute 'chain' 报错
-class CustomChain:
-    def __init__(self, text, at_qq=None):
-        from astrbot.api.message_components import Plain, At
-        self.chain = []
-        if at_qq:
-            # 满足艾特回复的需求
-            self.chain.append(At(qq=str(at_qq)))
-            self.chain.append(Plain(" "))
-        self.chain.append(Plain(text))
-
-@register("direct_reply_pro", "Care", "双向沟通：适配器直连版", "15.0.0")
-class DirectReplyPlugin(Star):
+@register("dual_chat", "Care", "双向联系：底层直连修复版", "20.0.0")
+class DualChatPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
-        self.owner_id = "3524815759" # 主人QQ
+        self.owner_id = "3524815759"
+        # 记录用户的消息事件，用于回复
+        self.user_events = {} 
 
     @command("联系主人")
-    async def contact_owner(self, event: AstrMessageEvent):
-        msg_str = event.message_str.strip()
-        if not msg_str:
-            yield event.plain_result("请输入内容。")
-            return
-
-        sender_id = str(event.get_sender_id())
-        sender_name = event.get_sender_name()
+    async def to_owner(self, event: AstrMessageEvent):
+        msg = event.message_str.strip()
+        if not msg: return
         
-        forward_text = (
-            f"📩 【新留言】\n"
-            f"👤 来自：{sender_name}({sender_id})\n"
-            f"📝 内容：{msg_str}\n"
-            f"━━━━━━━━━━━━━━\n"
-            f"💡 回复格式：/回复 {sender_id} 内容"
-        )
-
+        s_id = str(event.get_sender_id())
+        self.user_events[s_id] = event # 存下 event 对象
+        
+        forward_text = f"📩 新留言\n来自：{event.get_sender_name()}({s_id})\n内容：{msg}\n\n回复指令：/回复 {s_id} 内容"
+        
         try:
-            # 转发给主人：尝试用最简单的 ID 投递
-            await self.context.send_message(self.owner_id, CustomChain(forward_text))
-            yield event.plain_result("✅ 转发成功。")
-        except:
-            yield event.plain_result("✅ 转发成功(保底)。")
+            # 转发给你，直接发 QQ 号，框架会自动处理
+            await self.context.send_message(self.owner_id, [Plain(forward_text)])
+            yield event.plain_result("✅ 消息已发给主人。")
+        except Exception as e:
+            yield event.plain_result(f"❌ 转发失败: {str(e)}")
 
     @command("回复")
-    async def reply_user(self, event: AstrMessageEvent):
-        """主人通过此指令回复任何人"""
-        if str(event.get_sender_id()) != self.owner_id:
-            return
+    async def to_user(self, event: AstrMessageEvent):
+        if str(event.get_sender_id()) != self.owner_id: return
 
         parts = event.message_str.strip().split(maxsplit=1)
         if len(parts) < 2:
             yield event.plain_result("❌ 格式：/回复 [QQ号] [内容]")
             return
 
-        target_id = parts[0].strip()
-        reply_content = parts[1].strip()
+        target_qq = parts[0].strip()
+        content = parts[1].strip()
 
+        # 尝试从记录里找之前的 event
+        target_event = self.user_events.get(target_qq)
+        
         try:
-            # 1. 核心修复：获取适配器，直接查询全域昵称
-            target_name = target_id
-            adapter = self.context.get_platform_adapter(event.message_event.platform)
-            try:
-                user_info = await adapter.get_user_info(target_id)
-                if user_info and 'nickname' in user_info:
-                    target_name = user_info['nickname']
-            except:
-                pass # 搜不到名字就用 ID
+            from astrbot.api.message_components import At, Plain
+            # 构造消息：艾特 + 内容
+            msg_chain = [At(qq=target_qq), Plain(f" 收到主人回信：\n{content}")]
 
-            # 2. 构造消息
-            msg_obj = CustomChain(f"你好 {target_name}，收到主人的回信：\n{reply_content}", at_qq=target_id)
-
-            # 3. 核心修复：避开报错的 session 逻辑
-            # 我们直接构造一个临时的“伪事件”丢给适配器，让适配器直接去发，
-            # 这样就不会经过那个解析 "llbot:FriendMessage" 的报错逻辑了。
-            try:
-                # 尝试用最直接的方式
-                await self.context.send_message(target_id, msg_obj)
-            except Exception:
-                # 如果还是报错，直接调用适配器的原生发送方法
-                await adapter.send_friend_message(target_id, msg_obj.chain)
-
-            yield event.plain_result(f"🚀 已识别用户【{target_name}】并完成私聊投递。")
-
+            if target_event:
+                # 方案 A：如果有记录，直接用之前的 event 发回去，绝对不会报 session 错
+                await self.context.send_message(target_event, msg_chain)
+                yield event.plain_result(f"🚀 已回复给 {target_qq}")
+            else:
+                # 方案 B：如果没有记录（重启后），尝试直接投递数字 ID
+                # 避开 "llbot:FriendMessage" 这种导致 unpack 报错的格式
+                await self.context.send_message(target_qq, msg_chain)
+                yield event.plain_result(f"🚀 (直连投递) 已发给 {target_qq}")
+                
         except Exception as e:
-            yield event.plain_result(f"❌ 投递失败：{str(e)}")
+            # 最后的保底：尝试用最原始的 send_message 字符串模式
+            try:
+                await self.context.send_message(target_qq, [Plain(f"主人回复：{content}")])
+                yield event.plain_result("🚀 成功通过保底通道发送。")
+            except Exception as e2:
+                yield event.plain_result(f"❌ 彻底失败: {str(e2)}")
