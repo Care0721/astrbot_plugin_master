@@ -1,29 +1,38 @@
 from astrbot.api.all import *
 
-@register("dual_chat", "Care", "双向联系：底层直连修复版", "20.0.0")
-class DualChatPlugin(Star):
+@register("session_reply_pro", "Care", "Session 字符串硬核回复版", "25.0.0")
+class SessionReplyPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
         self.owner_id = "3524815759"
-        # 记录用户的消息事件，用于回复
-        self.user_events = {} 
+        # 依然需要这个来记录对方的名字
+        self.reply_map = {} 
 
     @command("联系主人")
     async def to_owner(self, event: AstrMessageEvent):
         msg = event.message_str.strip()
         if not msg: return
         
-        s_id = str(event.get_sender_id())
-        self.user_events[s_id] = event # 存下 event 对象
+        sender_id = str(event.get_sender_id())
+        self.reply_map[sender_id] = event.get_sender_name() # 只存名字
         
-        forward_text = f"📩 新留言\n来自：{event.get_sender_name()}({s_id})\n内容：{msg}\n\n回复指令：/回复 {s_id} 内容"
+        # 构造发给你的三段式 session
+        my_session = f"llbot:FriendMessage:{self.owner_id}"
         
+        forward_text = (
+            f"📩 【新留言】\n"
+            f"👤 来自：{event.get_sender_name()}({sender_id})\n"
+            f"📝 内容：{msg}\n"
+            f"━━━━━━━━━━━━━━\n"
+            f"💡 回复格式：/回复 {sender_id} 内容"
+        )
+
         try:
-            # 转发给你，直接发 QQ 号，框架会自动处理
-            await self.context.send_message(self.owner_id, [Plain(forward_text)])
-            yield event.plain_result("✅ 消息已发给主人。")
+            # 使用字符串 session 发送
+            await self.context.send_message(my_session, [Plain(forward_text)])
+            yield event.plain_result("✅ 转发成功。")
         except Exception as e:
-            yield event.plain_result(f"❌ 转发失败: {str(e)}")
+            yield event.plain_result(f"✅ 转发(保底): {str(e)}")
 
     @command("回复")
     async def to_user(self, event: AstrMessageEvent):
@@ -36,29 +45,29 @@ class DualChatPlugin(Star):
 
         target_qq = parts[0].strip()
         content = parts[1].strip()
-
-        # 尝试从记录里找之前的 event
-        target_event = self.user_events.get(target_qq)
         
+        # 1. 识别名字：从记录里拿，拿不到就显示 QQ 号
+        target_name = self.reply_map.get(target_qq, target_qq)
+
+        # 2. 关键：构造严格的三段式 Session 字符串
+        # 必须保证是这样：llbot:FriendMessage:123456
+        target_session = f"llbot:FriendMessage:{target_qq}"
+
         try:
             from astrbot.api.message_components import At, Plain
-            # 构造消息：艾特 + 内容
-            msg_chain = [At(qq=target_qq), Plain(f" 收到主人回信：\n{content}")]
+            # 3. 构造带艾特的消息链
+            msg_chain = [
+                At(qq=target_qq), 
+                Plain(f" 你好 {target_name}，收到主人的回信：\n{content}")
+            ]
 
-            if target_event:
-                # 方案 A：如果有记录，直接用之前的 event 发回去，绝对不会报 session 错
-                await self.context.send_message(target_event, msg_chain)
-                yield event.plain_result(f"🚀 已回复给 {target_qq}")
-            else:
-                # 方案 B：如果没有记录（重启后），尝试直接投递数字 ID
-                # 避开 "llbot:FriendMessage" 这种导致 unpack 报错的格式
-                await self.context.send_message(target_qq, msg_chain)
-                yield event.plain_result(f"🚀 (直连投递) 已发给 {target_qq}")
-                
+            # 4. 使用你要求的 session 格式发送
+            await self.context.send_message(target_session, msg_chain)
+            yield event.plain_result(f"🚀 已通过 Session 成功回复：{target_name}")
+
         except Exception as e:
-            # 最后的保底：尝试用最原始的 send_message 字符串模式
-            try:
-                await self.context.send_message(target_qq, [Plain(f"主人回复：{content}")])
-                yield event.plain_result("🚀 成功通过保底通道发送。")
-            except Exception as e2:
-                yield event.plain_result(f"❌ 彻底失败: {str(e2)}")
+            error_info = str(e)
+            if "expected 3" in error_info:
+                yield event.plain_result(f"❌ Session 格式错误(依旧是 unpack 问题): {error_info}")
+            else:
+                yield event.plain_result(f"❌ 发送失败: {error_info}")
