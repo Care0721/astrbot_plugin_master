@@ -1,8 +1,8 @@
-from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
-from astrbot.api.star import Context, Star, register
-from astrbot.api import logger
+from astrbot.api.all import *
+# 明确导入 Plain 组件，防止报错
+from astrbot.api.message_components import Plain 
 
-@register("contact_owner_pro", "YourName", "联系主人Pro：支持指定QQ号精准回复", "1.3.0")
+@register("contact_owner_pro", "YourName", "联系主人Pro：支持指定QQ号精准回复", "1.3.1")
 class ContactOwnerPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -21,51 +21,46 @@ class ContactOwnerPlugin(Star):
         sender_name = event.get_sender_name()
         platform = event.get_platform_name()
 
-        # 构造给主人的格式化信息，突出显示 QQ 号方便复制
         forward_text = (
             f"📩 【收到新留言】\n"
             f"━━━━━━━━━━━━━━\n"
             f"👤 发送者：{sender_name}\n"
-            f"🆔 QQ/ID：{sender_id}\n"  # 显式显示 QQ 号
+            f"🆔 QQ/ID：{sender_id}\n"
             f"🌐 平台：{platform}\n"
             f"📝 内容：{message_content}\n"
             f"━━━━━━━━━━━━━━\n"
-            f"💡 回复格式：/回复 {sender_id} [你的回复内容]"
+            f"💡 回复格式：/回复 {sender_id} [内容]"
         )
 
         try:
-            # 转发给主人
+            # 转发给主人。注意这里使用了 [Plain(forward_text)]
             await self.context.send_message(self.owner_id, [Plain(forward_text)])
             yield event.plain_result("✅ 消息已转发，主人看到后会给您回复。")
         except Exception as e:
-            yield event.plain_result(f"❌ 转发失败：{e}")
+            # 如果还是不行，尝试直接发送字符串（部分适配器支持）
+            try:
+                await self.context.send_message(self.owner_id, forward_text)
+                yield event.plain_result("✅ 消息已转发（兼容模式）。")
+            except:
+                yield event.plain_result(f"❌ 转发失败：{e}")
 
     @filter.command("回复")
     async def reply_user(self, event: AstrMessageEvent):
         '''主人调用：指定 ID 回复。用法：/回复 [QQ/ID] [内容]'''
-        
-        # 权限校验
         if str(event.get_sender_id()) != self.owner_id:
             return
 
-        # 解析参数：尝试从 "/回复 123456 内容" 中提取 ID 和内容
         parts = event.message_str.strip().split(maxsplit=1)
-        
         if len(parts) < 2:
-            yield event.plain_result("❌ 格式错误！请使用：/回复 [QQ号] [内容]\n示例：/回复 12345678 你好呀")
+            yield event.plain_result("❌ 格式：/回复 [QQ号] [内容]")
             return
 
-        target_id = parts[0]    # 目标 QQ 号
-        reply_content = parts[1] # 回复的文本
+        target_id = parts[0]
+        reply_content = parts[1]
 
         try:
-            # 构造发送给用户的消息内容
             reply_msg = f"🔔 您收到了主人的回信：\n\n{reply_content}"
-            
-            # 发送消息给指定 ID
             await self.context.send_message(target_id, [Plain(reply_msg)])
-            
             yield event.plain_result(f"🚀 已成功发送给用户({target_id})")
         except Exception as e:
-            yield event.plain_result(f"❌ 回复失败。可能原因：机器人未加对方好友、ID 错误。错误信息：{e}")
-
+            yield event.plain_result(f"❌ 回复失败：{e}")
