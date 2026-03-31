@@ -1,7 +1,6 @@
 name: astrbot_plugin_master # 插件唯一识别名，以 astrbot_plugin_ 前缀开头
 display_name: 用户联系管理员 # 用于展示的名字，可以是方便人类阅读的名字（需要版本 >= v4.5.0，低版本不会报错，请放心填写）
-desc: 这是一个自用插件，用于用户联系bot管理员对话用户指令，指令联系主人+内容 主人指令，回复+【指定QQ号】+内容
-用了Gemini的力量，想改自己改吧，主人ID得自己文件配置，默认是我的嘻嘻嘻
+desc: 这是一个自用插件，用于用户联系bot管理员对话用户指令，指令联系主人+内容 主人指令，回复+【指定QQ号】+内容，用了Gemini的力量，想改自己改吧，主人ID得自己文件配置，默认是我的嘻嘻嘻
 version: v1.0.0 
 author: Care 
 repo: https://github.com/Care0721/astrbot_plugin_master 
