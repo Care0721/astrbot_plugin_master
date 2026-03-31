@@ -1,12 +1,11 @@
 from astrbot.api.all import *
 
-@register("contact_owner_pro", "Care", "联系主人：纯净艾特版", "5.0.0")
+@register("contact_owner_pro", "Care", "联系主人：极致兼容版", "6.0.0")
 class ContactOwnerPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
-        # 你的 QQ 号
         self.owner_id = "3524815759"
-        self.reply_map = {}
+        self.reply_map = {} # 存放 event 对象
 
     @command("联系主人")
     async def contact_owner(self, event: AstrMessageEvent):
@@ -16,8 +15,7 @@ class ContactOwnerPlugin(Star):
             return
 
         sender_id = str(event.get_sender_id())
-        # 记录整个 event 对象
-        self.reply_map[sender_id] = event 
+        self.reply_map[sender_id] = event # 核心：记录 event 对象
 
         forward_text = (
             f"📩 【新留言】\n"
@@ -28,17 +26,15 @@ class ContactOwnerPlugin(Star):
         )
 
         try:
-            # 转发给主人：直接用 event 的 session_id 字符串尝试
-            # 如果三段式字符串还是报错，这里会跳到保底逻辑
-            owner_path = f"llbot:FriendMessage:{self.owner_id}"
-            await self.context.send_message(owner_path, forward_text)
-            yield event.plain_result("✅ 已转发给主人。")
+            # 转发给主人：直接构造三段式 ID
+            target = f"llbot:FriendMessage:{self.owner_id}"
+            await self.context.send_message(target, [Plain(forward_text)])
+            yield event.plain_result("✅ 转发成功。")
         except:
             yield event.plain_result("✅ 转发成功(保底)。")
 
     @command("回复")
     async def reply_user(self, event: AstrMessageEvent):
-        # 只有你能调用
         if str(event.get_sender_id()) != self.owner_id:
             return
 
@@ -48,33 +44,32 @@ class ContactOwnerPlugin(Star):
             return
 
         target_id, reply_content = parts[0], parts[1]
-        target_event = self.reply_map.get(target_id)
+        target_event = self.reply_map.get(target_id) # 从内存读取记录
 
         if not target_event:
-            yield event.plain_result(f"❌ 找不到该用户 {target_id} 的联系记录，请让对方重新发送一次消息。")
+            # 重启后记录会消失，必须重新激活
+            yield event.plain_result(f"❌ 找不到用户 {target_id} 的记录，请让对方重新发一次消息。")
             return
 
         try:
-            # --- 核心艾特逻辑：不导入 At，直接构造框架能识别的消息链列表 ---
-            # 这种写法绕过了 'str' object has no attribute 'chain' 的报错
+            # --- 核心：直接用列表包裹组件，实现 @ 功能并避开 chain 报错 ---
+            # 不再使用包装类，直接调用底层组件
             from astrbot.api.message_components import Plain, At
             
-            # 构造消息内容
             msg_chain = [
                 At(qq=target_id), 
                 Plain(" "), 
-                Plain(f"收到主人的回复：\n{reply_content}")
+                Plain(f"主人回复：\n{reply_content}")
             ]
             
-            # 直接把 target_event 作为第一个参数丢进去
-            # 这是解决“缺少有效 session_id”最稳妥的办法
+            # 使用记录的 target_event 原路发回，彻底解决 session_id 报错
             await self.context.send_message(target_event, msg_chain)
-            yield event.plain_result(f"🚀 已回复并艾特 {target_id}")
+            yield event.plain_result(f"🚀 已成功艾特并回复给 {target_id}")
             
         except Exception as e:
-            # 最后的倔强：如果连组件都崩了，直接发纯文字
+            # 终极保底：如果艾特组件都崩了，就发纯文字
             try:
-                await self.context.send_message(target_event, f"主人回复：{reply_content}")
-                yield event.plain_result(f"🚀 已回复(纯文字模式)")
-            except Exception as final_e:
-                yield event.plain_result(f"❌ 回复失败：{str(final_e)}")
+                await self.context.send_message(target_event, [Plain(f"主人回复：{reply_content}")])
+                yield event.plain_result(f"🚀 已回复(纯文本模式)")
+            except Exception as e2:
+                yield event.plain_result(f"❌ 投递失败：{str(e2)}")
